@@ -220,10 +220,10 @@ class Transcoder(object):
         logtemplate = '\n      %-11s%d:%s:%s'
         n = 0
         for v in self.video_tracks:
-            logstring += logtemplate % ('Audio:', n, v.language, v.format)
+            logstring += logtemplate % ('Video:', n, v.language, v.format)
             n += 1
         for a in self.audio_tracks:
-            logstring += logtemplate % ('Video:', n, a.language, a.format)
+            logstring += logtemplate % ('Audio:', n, a.language, a.format)
             n += 1
         for s in self.subs_tracks:
             logstring += logtemplate % ('Subtitle:', n, s.language, s.format)
