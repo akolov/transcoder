@@ -14,7 +14,7 @@ DEFAULT_LANGUAGES = ['eng', 'rus']
 SURROUND_FORMATS = ['ac3', 'dts']
 FORMATS = ['h264', 'aac', 'ac3', 'dts', 'subrip', 'mov_text']
 FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
-                           '\((?P<language>\w+)\):\s+(?P<track_type>\w+):\s+'
+                           '(?:\((?P<language>\w+)\))?:\s+(?P<track_type>\w+):\s+'
                            '(?P<format>\w+).*')
 
 
@@ -62,10 +62,11 @@ class Track(object):
 
 
 class Transcoder(object):
-    def __init__(self, source, languages, ffmpeg_loglevel):
+    def __init__(self, source, languages, force_language, ffmpeg_loglevel):
         self.source = source
         self.basename = os.path.splitext(os.path.basename(self.source))[0]
         self.languages = languages
+        self.force_language = force_language
         self.ffmpeg_loglevel = ffmpeg_loglevel
         self.video_tracks = []
         self.audio_tracks = []
@@ -85,7 +86,12 @@ class Transcoder(object):
                 continue
 
             d = m.groupdict()
-            if d['language'] not in self.languages:
+            if self.force_language and not d['language']:
+                logging.info('Forcing %s track language to %s',
+                             d['track_type'], self.force_language)
+                d['language'] = self.force_language
+            elif d['language'] not in self.languages:
+                logging.info('Skipping track language: %s', d['language'])
                 continue
 
             if d['format'] not in FORMATS:
@@ -142,6 +148,12 @@ class Transcoder(object):
                      temporary=True)
 
     def transcode(self):
+        if (not self.video_tracks and
+            not self.audio_tracks and
+            not self.subs_tracks):
+            logging.error('Nothing to convert. Exiting.')
+            return
+
         for track in islice(self.audio_tracks, len(self.audio_tracks)):
             if track.format in SURROUND_FORMATS:
                 converted_track = self.convert_audio(track)
@@ -259,6 +271,8 @@ if __name__ == '__main__':
                         help='source file(s)')
     parser.add_argument('-l', dest='languages', action=LanguagesAction,
                         help='list of languages. eng,rus by default')
+    parser.add_argument('-f', dest='force_language',
+                        help='force unknown language')
 
     verbosity_group = parser.add_mutually_exclusive_group()
     verbosity_group.add_argument('-v', action='store_const', dest='loglevel',
@@ -266,8 +280,9 @@ if __name__ == '__main__':
     verbosity_group.add_argument('-vv', action='store_const', dest='loglevel',
                                  const=logging.DEBUG)
 
-    parser.add_argument('-fv', action='store', dest='ffmpeg_loglevel',
+    parser.add_argument('-d', action='store', dest='ffmpeg_loglevel',
                         metavar='LEVEL', help='ffmpeg log level')
+
     args = parser.parse_args()
 
     handler = logging.StreamHandler()
@@ -280,6 +295,7 @@ if __name__ == '__main__':
         t = Transcoder(
             source=source,
             languages=args.languages or DEFAULT_LANGUAGES,
+            force_language=args.force_language,
             ffmpeg_loglevel=args.ffmpeg_loglevel or DEFAULT_FFMPEG_LOGLEVEL
         )
         t.probe()
