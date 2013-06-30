@@ -149,8 +149,8 @@ class Transcoder(object):
 
     def transcode(self):
         if (not self.video_tracks and
-            not self.audio_tracks and
-            not self.subs_tracks):
+                not self.audio_tracks and
+                not self.subs_tracks):
             logging.error('Nothing to convert. Exiting.')
             return
 
