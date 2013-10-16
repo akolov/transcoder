@@ -311,6 +311,13 @@ class Transcoder(object):
             logging.info('mp4track is running now...')
             subprocess.check_call(cmd)
 
+        # FFMPEG always embeds itself as encoder
+
+        cmd = ['mp4tags', '-r', 'E', filename]
+        logging.debug('mp4tags command: %s', ' '.join(cmd))
+        logging.info('mp4tags is running now...')
+        subprocess.check_call(cmd)
+
         logging.info('Done. Your new file is: %s' % filename)
 
 
