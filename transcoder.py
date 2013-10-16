@@ -146,6 +146,7 @@ class Transcoder(object):
             '-map', track.map,
             '-f', 'wav',
             '-ac', '2',
+            '-vol', '512',
             '-y', wav
         ]
 
