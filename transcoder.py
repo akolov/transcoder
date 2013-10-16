@@ -5,14 +5,25 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 
+from collections import OrderedDict
 from itertools import islice
+from shutil import rmtree
 
 DEFAULT_LOGLEVEL = logging.WARNING
 DEFAULT_FFMPEG_LOGLEVEL = 'error'
-DEFAULT_LANGUAGES = ['eng', 'rus']
-SURROUND_FORMATS = ['ac3', 'dts']
-FORMATS = ['h264', 'aac', 'ac3', 'dts', 'subrip', 'mov_text']
+DEFAULT_LANGUAGES = OrderedDict([
+    ('eng', 'English'),
+    ('rus', 'Russian')
+])
+
+FORMATS_VIDEO = ['h264']
+FORMATS_STEREO = ['aac']
+FORMATS_SURROUND = ['ac3', 'dts']
+FORMATS_SUBTITLE = ['subrip', 'mov_text']
+FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_SURROUND + FORMATS_SUBTITLE
+
 FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
                            '(?:\((?P<language>\w+)\))?:\s+(?P<track_type>\w+):\s+'
                            '(?P<format>\w+).*')
@@ -50,6 +61,23 @@ class Track(object):
     def track_id(self, value):
         self._track_id = int(value)
 
+    def name(self, include_language):
+        _name = None
+
+        if self.format in FORMATS_VIDEO:
+            _name = 'Video'
+        elif self.format in FORMATS_STEREO:
+            _name = 'Stereo'
+        elif self.format in FORMATS_SURROUND:
+            _name = 'Surround'
+        elif self.format in FORMATS_SUBTITLE:
+            _name = 'Subtitles'
+
+        if include_language and _name:
+            _name = '%s %s' % (DEFAULT_LANGUAGES[self.language], _name)
+
+        return _name
+
     def key(self, languages):
         return (
             languages.index(self.language),
@@ -71,11 +99,13 @@ class Transcoder(object):
         self.video_tracks = []
         self.audio_tracks = []
         self.subs_tracks = []
+        self.temp_dir = tempfile.mkdtemp(prefix='transcoder-')
+
+        if not self.temp_dir:
+            raise IOError()
 
     def __del__(self):
-        tracks = self.video_tracks + self.audio_tracks + self.subs_tracks
-        for t in filter(lambda x: x.temporary, tracks):
-            os.unlink(t.trackfile)
+        rmtree(self.temp_dir)
 
     def probe(self):
         output = subprocess.check_output(['ffprobe', '-i', self.source],
@@ -106,8 +136,8 @@ class Transcoder(object):
                 self.subs_tracks.append(t)
 
     def convert_audio(self, track):
-        wav = '%s.%s.wav' % (self.basename, track.language)
-        m4a = '%s.%s.m4a' % (self.basename, track.language)
+        wav = os.path.join(self.temp_dir, '%s.%s.wav' % (self.basename, track.language))
+        m4a = os.path.join(self.temp_dir, '%s.%s.m4a' % (self.basename, track.language))
 
         cmd = [
             'ffmpeg',
@@ -155,7 +185,7 @@ class Transcoder(object):
             return
 
         for track in islice(self.audio_tracks, len(self.audio_tracks)):
-            if track.format in SURROUND_FORMATS:
+            if track.format in FORMATS_SURROUND:
                 converted_track = self.convert_audio(track)
                 self.audio_tracks.append(converted_track)
 
@@ -245,6 +275,42 @@ class Transcoder(object):
         logging.info('FFMPEG is running now...')
         subprocess.check_call(cmd)
 
+        # Set MP4 metadata
+
+        video_languages = set([v.language for v in self.video_tracks])
+        audio_languages = set([a.language for a in self.audio_tracks])
+
+        show_video_language = len(video_languages) > 1
+        show_audio_language = len(audio_languages) > 1
+
+        mp4track_commands = []
+        counter = 1
+
+        for i in range(len(self.video_tracks)):
+            v = self.video_tracks[i]
+            if v.name(show_video_language):
+                mp4track_commands.append(['--track-id=%d' % counter, '--udtaname=%s' % v.name(show_video_language)])
+            counter += 1
+
+        for i in range(len(self.audio_tracks)):
+            a = self.audio_tracks[i]
+            if a.name(show_audio_language):
+                mp4track_commands.append(['--track-id=%d' % counter, '--udtaname=%s' % a.name(show_audio_language)])
+            counter += 1
+
+        for i in range(len(self.subs_tracks)):
+            s = self.subs_tracks[i]
+            if s.name(True):
+                mp4track_commands.append(['--track-id=%d' % counter, '--udtaname=%s' % s.name(True)])
+            counter += 1
+
+        for c in mp4track_commands:
+            cmd = ['mp4track'] + c + [filename]
+
+            logging.debug('mp4track command: %s', ' '.join(cmd))
+            logging.info('mp4track is running now...')
+            subprocess.check_call(cmd)
+
         logging.info('Done. Your new file is: %s' % filename)
 
 
@@ -261,7 +327,7 @@ class LanguagesAction(argparse.Action):
         try:
             values = [v.strip() for v in values.strip().split(',')]
         except ValueError:
-            values = DEFAULT_LANGUAGES
+            values = DEFAULT_LANGUAGES.keys()
         setattr(args, self.dest, values)
 
 
@@ -294,7 +360,7 @@ if __name__ == '__main__':
     for source in args.source:
         t = Transcoder(
             source=source,
-            languages=args.languages or DEFAULT_LANGUAGES,
+            languages=args.languages or DEFAULT_LANGUAGES.keys(),
             force_language=args.force_language,
             ffmpeg_loglevel=args.ffmpeg_loglevel or DEFAULT_FFMPEG_LOGLEVEL
         )
