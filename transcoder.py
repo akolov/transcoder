@@ -15,7 +15,8 @@ DEFAULT_LOGLEVEL = logging.WARNING
 DEFAULT_FFMPEG_LOGLEVEL = 'error'
 DEFAULT_LANGUAGES = OrderedDict([
     ('eng', 'English'),
-    ('rus', 'Russian')
+    ('rus', 'Russian'),
+    ('jpn', 'Japanese')
 ])
 
 FORMATS_VIDEO = ['h264']
