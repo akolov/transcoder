@@ -74,7 +74,10 @@ class Track(object):
             _name = 'Subtitles'
 
         if include_language and _name:
-            _name = '%s %s' % (DEFAULT_LANGUAGES[self.language], _name)
+            if self.language in DEFAULT_LANGUAGES:
+                _name = '%s %s' % (DEFAULT_LANGUAGES[self.language], _name)
+            else:
+                _name = '%s %s' % (self.language, _name)
 
         return _name
 
