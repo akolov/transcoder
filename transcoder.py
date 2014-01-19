@@ -21,8 +21,9 @@ DEFAULT_LANGUAGES = OrderedDict([
 FORMATS_VIDEO = ['h264']
 FORMATS_STEREO = ['aac']
 FORMATS_SURROUND = ['ac3', 'dts']
+FORMATS_CONVERT = ['vorbis']
 FORMATS_SUBTITLE = ['subrip', 'mov_text']
-FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_SURROUND + FORMATS_SUBTITLE
+FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_CONVERT + FORMATS_SURROUND + FORMATS_SUBTITLE
 
 FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
                            '(?:\((?P<language>\w+)\))?:\s+(?P<track_type>\w+):\s+'
@@ -192,6 +193,10 @@ class Transcoder(object):
             if track.format in FORMATS_SURROUND:
                 converted_track = self.convert_audio(track)
                 self.audio_tracks.append(converted_track)
+            elif track.format in FORMATS_CONVERT:
+                converted_track = self.convert_audio(track)
+                self.audio_tracks.append(converted_track)
+                self.audio_tracks.remove(track)
 
         self.video_tracks = sorted(self.video_tracks,
                                    key=lambda x: x.key(self.languages))
