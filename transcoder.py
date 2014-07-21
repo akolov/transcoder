@@ -21,31 +21,35 @@ DEFAULT_LANGUAGES = OrderedDict([
 
 FORMATS_VIDEO = ['h264']
 FORMATS_STEREO = ['aac']
+FORMATS_LOSSLESS = ['flac']
 FORMATS_SURROUND = ['ac3', 'dts']
-FORMATS_CONVERT = ['vorbis', 'flac']
+FORMATS_CONVERT = ['vorbis']
 FORMATS_SUBTITLE = ['subrip', 'mov_text', 'hdmv_pgs_subtitle']
-FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_CONVERT + FORMATS_SURROUND + FORMATS_SUBTITLE
+FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_CONVERT + FORMATS_SURROUND + FORMATS_LOSSLESS + FORMATS_SUBTITLE
 
 FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
                            '(?:\((?P<language>\w+)\))?:\s+(?P<track_type>\w+):\s+'
-                           '(?P<format>\w+).*')
+                           '(?P<format>\w+)\s*(\((?P<subformat>.*)\))?,\s+(?P<other>.*)')
 
+FFMPEG_PATH = 'ffmpeg'
 
 class Track(object):
     def __init__(self, file_id, track_id, language, format,
-                 trackfile=None, temporary=False,
-                 *args, **kwargs):
+                 trackfile=None, temporary=False, codec='copy',
+                 surround=False, *args, **kwargs):
         self.file_id = file_id
         self.track_id = track_id
         self.language = language
         self.format = format
         self.trackfile = trackfile
         self.temporary = temporary
+        self.codec = codec
+        self.surround = surround
 
     def __repr__(self):
-        return '%d:%d:%s:%s (%s)' % (self.file_id, self.track_id,
-                                     self.language, self.format,
-                                     self.trackfile)
+        return '%d:%d:%s:%s (%s) -> %s' % (self.file_id, self.track_id,
+                                           self.language, self.format,
+                                           self.trackfile, self.codec)
 
     @property
     def file_id(self):
@@ -72,6 +76,8 @@ class Track(object):
             _name = 'Stereo'
         elif self.format in FORMATS_SURROUND:
             _name = 'Surround'
+        elif self.format in FORMATS_LOSSLESS:
+            _name = 'Lossless'
         elif self.format in FORMATS_SUBTITLE:
             _name = 'Subtitles'
 
@@ -133,31 +139,61 @@ class Transcoder(object):
                 continue
 
             t = Track(trackfile=self.source, **d)
+
             if d['track_type'] == 'Video':
                 self.video_tracks.append(t)
             elif d['track_type'] == 'Audio':
+                if ('5.1(side)' in d['other']):
+                    t.surround = True
                 self.audio_tracks.append(t)
             elif d['track_type'] == 'Subtitle':
                 self.subs_tracks.append(t)
 
-    def convert_audio(self, track):
+    def dts_convert_audio(self, track):
+        return Track(file_id=track.file_id,
+                     track_id=track.track_id,
+                     language=track.language,
+                     format='dts',
+                     temporary=False,
+                     codec='dca')
+
+    def aac_convert_audio(self, track):
         wav = os.path.join(self.temp_dir, '%s.%s.wav' % (self.basename, track.language))
         m4a = os.path.join(self.temp_dir, '%s.%s.m4a' % (self.basename, track.language))
 
         cmd = [
-            'ffmpeg',
+            FFMPEG_PATH,
             '-loglevel', self.ffmpeg_loglevel,
             '-i', self.source,
             '-map', track.map,
             '-f', 'wav',
-            '-ac', '2',
-            '-vol', '512',
             '-y', wav
         ]
 
         logging.info('Extracting audio track %s as WAV', track)
         logging.debug('FFMPEG command: %s', ' '.join(cmd))
         subprocess.call(cmd)
+
+        sox = None
+        if track.format in FORMATS_SURROUND:
+          sox = os.path.join(self.temp_dir, '%s.%s.sox.wav' % (self.basename, track.language))
+          cmd = [
+            'sox',
+            '-V3',
+            '--guard',
+            '--show-progress',
+            wav, sox,
+            'remix',
+            '-m',
+            '1v0.3254,3v0.2301,5v0.2818,6v0.1627',
+            '2v0.3254,3v0.2301,5v-0.1627,6v-0.2818',
+            'gain',
+            '-n'
+          ]
+
+          logging.info('Processing audio track %s with sox', track)
+          logging.debug('sox command: %s', ' '.join(cmd))
+          subprocess.call(cmd)
 
         cmd = [
             'afconvert',
@@ -166,7 +202,7 @@ class Transcoder(object):
             '-f', 'm4af',
             '-d', 'aac',
             '-u', 'vbrq', '127',
-            wav, m4a
+            sox or wav, m4a
         ]
 
         logging.info('Converting audio track %s to AAC', track)
@@ -176,7 +212,11 @@ class Transcoder(object):
         logging.debug('Deleting temporary WAV file: %s' % wav)
         os.unlink(wav)
 
-        return Track(file_id=self.languages.index(track.language) + 1,
+        if sox:
+          logging.debug('Deleting temporary SOX file: %s' % sox)
+          os.unlink(sox)
+
+        return Track(file_id=-1,
                      track_id=0,
                      language=track.language,
                      format='aac',
@@ -192,11 +232,18 @@ class Transcoder(object):
 
         for track in islice(self.audio_tracks, len(self.audio_tracks)):
             if track.format in FORMATS_SURROUND:
-                converted_track = self.convert_audio(track)
+                converted_track = self.aac_convert_audio(track)
                 self.audio_tracks.append(converted_track)
             elif track.format in FORMATS_CONVERT:
-                converted_track = self.convert_audio(track)
+                converted_track = self.aac_convert_audio(track)
                 self.audio_tracks.append(converted_track)
+                self.audio_tracks.remove(track)
+            elif track.format in FORMATS_LOSSLESS:
+                if track.surround:
+                    dts_converted_track = self.dts_convert_audio(track)
+                    self.audio_tracks.append(dts_converted_track)
+                aac_converted_track = self.aac_convert_audio(track)
+                self.audio_tracks.append(aac_converted_track)
                 self.audio_tracks.remove(track)
 
         self.video_tracks = sorted(self.video_tracks,
@@ -206,20 +253,28 @@ class Transcoder(object):
         self.subs_tracks = sorted(self.subs_tracks,
                                   key=lambda x: x.key(self.languages))
 
-        cmd = ['ffmpeg']
+        cmd = [FFMPEG_PATH]
         cmd += ['-loglevel', self.ffmpeg_loglevel]
         cmd += ['-i', self.source]
 
         # Additional input files
 
+        num_files = 1
+
         for v in filter(lambda x: x.temporary, self.video_tracks):
+            v.file_id = num_files
             cmd += ['-i', v.trackfile]
+            num_files += 1
 
         for a in filter(lambda x: x.temporary, self.audio_tracks):
+            a.file_id = num_files
             cmd += ['-i', a.trackfile]
+            num_files += 1
 
         for s in filter(lambda x: x.temporary, self.subs_tracks):
+            a.file_id = num_files
             cmd += ['-i', s.trackfile]
+            num_files += 1
 
         # Set up track mapping
 
@@ -235,10 +290,12 @@ class Transcoder(object):
         # Set up track codecs
 
         for i in range(len(self.video_tracks)):
-            cmd += ['-c:v:%d' % i, 'copy']
+            track = self.video_tracks[i]
+            cmd += ['-c:v:%d' % i, track.codec]
 
         for i in range(len(self.audio_tracks)):
-            cmd += ['-c:a:%d' % i, 'copy']
+            track = self.audio_tracks[i]
+            cmd += ['-c:a:%d' % i, track.codec]
 
         for i in range(len(self.subs_tracks)):
             cmd += ['-c:s:%d' % i, 'mov_text']
@@ -258,6 +315,11 @@ class Transcoder(object):
             cmd += ['-metadata:s:s:%d' % i, 'language=%s' % s.language]
 
         # Output options
+
+        for a in self.audio_tracks:
+          if a.codec == 'dca':
+            cmd += ['-strict', '-2']
+            break
 
         filename = self.basename + '.transcoded.m4v'
 
@@ -363,6 +425,8 @@ if __name__ == '__main__':
     verbosity_group.add_argument('-vv', action='store_const', dest='loglevel',
                                  const=logging.DEBUG)
 
+    parser.add_argument('-p', action='store', dest='ffmpeg_path',
+                        metavar='FFMPEG_PATH', help='path to ffmpeg binary')
     parser.add_argument('-d', action='store', dest='ffmpeg_loglevel',
                         metavar='LEVEL', help='ffmpeg log level')
 
@@ -373,6 +437,9 @@ if __name__ == '__main__':
     logger = logging.getLogger()
     logger.setLevel(args.loglevel or DEFAULT_LOGLEVEL)
     logger.addHandler(handler)
+
+    if args.ffmpeg_path:
+        FFMPEG_PATH = args.ffmpeg_path
 
     for source in args.source:
         t = Transcoder(
