@@ -349,8 +349,8 @@ class Transcoder(object):
 
         # Optimize file
 
-        cmd = ['mp4tags', '--optimize', filename]
-        logging.debug('mp4tags command: %s', ' '.join(cmd))
+        cmd = ['mp4file', '--optimize', filename]
+        logging.debug('mp4file command: %s', ' '.join(cmd))
         logging.info('Optimizing mp4 file...')
         subprocess.check_call(cmd)
 
