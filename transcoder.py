@@ -347,13 +347,6 @@ class Transcoder(object):
         logging.info('FFMPEG is running now...')
         subprocess.check_call(cmd)
 
-        # Optimize file
-
-        cmd = ['mp4file', '--optimize', filename]
-        logging.debug('mp4file command: %s', ' '.join(cmd))
-        logging.info('Optimizing mp4 file...')
-        subprocess.check_call(cmd)
-
         # Set MP4 metadata
 
         video_languages = set([v.language for v in self.video_tracks])
