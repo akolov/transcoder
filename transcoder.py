@@ -36,7 +36,7 @@ FFMPEG_PATH = 'ffmpeg'
 class Track(object):
     def __init__(self, file_id, track_id, language, format,
                  trackfile=None, temporary=False, codec='copy',
-                 surround=False, *args, **kwargs):
+                 surround=False, options=None, *args, **kwargs):
         self.file_id = file_id
         self.track_id = track_id
         self.language = language
@@ -45,6 +45,7 @@ class Track(object):
         self.temporary = temporary
         self.codec = codec
         self.surround = surround
+        self.options = options
 
     def __repr__(self):
         return '%d:%d:%s:%s (%s) -> %s' % (self.file_id, self.track_id,
@@ -158,70 +159,13 @@ class Transcoder(object):
                      codec='dca')
 
     def aac_convert_audio(self, track):
-        wav = os.path.join(self.temp_dir, '%s.%s.wav' % (self.basename, track.language))
-        m4a = os.path.join(self.temp_dir, '%s.%s.m4a' % (self.basename, track.language))
-
-        cmd = [
-            FFMPEG_PATH,
-            '-loglevel', self.ffmpeg_loglevel,
-            '-i', self.source,
-            '-map', track.map,
-            '-f', 'wav',
-            '-y', wav
-        ]
-
-        logging.info('Extracting audio track %s as WAV', track)
-        logging.debug('FFMPEG command: %s', ' '.join(cmd))
-        subprocess.call(cmd)
-
-        sox = None
-        if track.format in FORMATS_SURROUND:
-          sox = os.path.join(self.temp_dir, '%s.%s.sox.wav' % (self.basename, track.language))
-          cmd = [
-            'sox',
-            '-V3',
-            '--guard',
-            '--show-progress',
-            wav, sox,
-            'remix',
-            '-m',
-            '1v0.3254,3v0.2301,5v0.2818,6v0.1627',
-            '2v0.3254,3v0.2301,5v-0.1627,6v-0.2818',
-            'gain',
-            '-n'
-          ]
-
-          logging.info('Processing audio track %s with sox', track)
-          logging.debug('sox command: %s', ' '.join(cmd))
-          subprocess.call(cmd)
-
-        cmd = [
-            'afconvert',
-            '-q', '127',
-            '-s', '3',
-            '-f', 'm4af',
-            '-d', 'aac',
-            '-u', 'vbrq', '127',
-            sox or wav, m4a
-        ]
-
-        logging.info('Converting audio track %s to AAC', track)
-        logging.debug('AfConvert command: %s', ' '.join(cmd))
-        subprocess.call(cmd)
-
-        logging.debug('Deleting temporary WAV file: %s' % wav)
-        os.unlink(wav)
-
-        if sox:
-          logging.debug('Deleting temporary SOX file: %s' % sox)
-          os.unlink(sox)
-
-        return Track(file_id=-1,
-                     track_id=0,
+        return Track(file_id=track.file_id,
+                     track_id=track.track_id,
                      language=track.language,
                      format='aac',
-                     trackfile=m4a,
-                     temporary=True)
+                     temporary=False,
+                     codec='libfdk_aac',
+                     options=['-ac', '2', '-b:a', '192k', '-cutoff', '18000'])
 
     def transcode(self):
         if (not self.video_tracks and
@@ -246,12 +190,9 @@ class Transcoder(object):
                 self.audio_tracks.append(aac_converted_track)
                 self.audio_tracks.remove(track)
 
-        self.video_tracks = sorted(self.video_tracks,
-                                   key=lambda x: x.key(self.languages))
-        self.audio_tracks = sorted(self.audio_tracks,
-                                   key=lambda x: x.key(self.languages))
-        self.subs_tracks = sorted(self.subs_tracks,
-                                  key=lambda x: x.key(self.languages))
+        self.video_tracks = sorted(self.video_tracks, key=lambda x: x.key(self.languages))
+        self.audio_tracks = sorted(self.audio_tracks, key=lambda x: x.key(self.languages))
+        self.subs_tracks = sorted(self.subs_tracks, key=lambda x: x.key(self.languages))
 
         cmd = [FFMPEG_PATH]
         cmd += ['-loglevel', self.ffmpeg_loglevel]
@@ -292,13 +233,19 @@ class Transcoder(object):
         for i in range(len(self.video_tracks)):
             track = self.video_tracks[i]
             cmd += ['-c:v:%d' % i, track.codec]
+            if track.options:
+              cmd += track.options
 
         for i in range(len(self.audio_tracks)):
             track = self.audio_tracks[i]
             cmd += ['-c:a:%d' % i, track.codec]
+            if track.options:
+              cmd += track.options
 
         for i in range(len(self.subs_tracks)):
             cmd += ['-c:s:%d' % i, 'mov_text']
+            if track.options:
+              cmd += track.options
 
         # Track metadata
 
