@@ -29,7 +29,7 @@ FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_CONVERT + FORMATS_SURROUND + 
 
 FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
                            '(?:\((?P<language>\w+)\))?:\s+(?P<track_type>\w+):\s+'
-                           '(?P<format>\w+)\s*(\((?P<subformat>.*)\))?,\s+(?P<other>.*)')
+                           '(?P<format>\w+)(\s*(\((?P<subformat>.*)\))?,\s+(?P<other>.*))?')
 
 FFMPEG_PATH = 'ffmpeg'
 
