@@ -138,9 +138,11 @@ class Transcoder(object):
                 continue
 
             if d['format'] not in FORMATS:
+                logging.info('Unknown track format: %s', d['format'])
                 continue
 
             t = Track(trackfile=self.source, **d)
+            logging.debug('Found track %s', t)
 
             if d['track_type'] == 'Video':
                 self.video_tracks.append(t)
