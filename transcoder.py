@@ -102,12 +102,13 @@ class Track(object):
 
 
 class Transcoder(object):
-    def __init__(self, source, languages, force_language, ffmpeg_loglevel):
+    def __init__(self, source, languages, force_language, ffmpeg_loglevel, skip_metadata):
         self.source = source
         self.basename = os.path.splitext(os.path.basename(self.source))[0]
         self.languages = languages
         self.force_language = force_language
         self.ffmpeg_loglevel = ffmpeg_loglevel
+        self.skip_metadata = skip_metadata
         self.video_tracks = []
         self.audio_tracks = []
         self.subs_tracks = []
@@ -376,6 +377,7 @@ if __name__ == '__main__':
                         metavar='FFMPEG_PATH', help='path to ffmpeg binary')
     parser.add_argument('-d', action='store', dest='ffmpeg_loglevel',
                         metavar='LEVEL', help='ffmpeg log level')
+    parser.add_argument('-s', action='store_const', dest='skip_metadata', const=True)
 
     args = parser.parse_args()
 
@@ -393,7 +395,8 @@ if __name__ == '__main__':
             source=source,
             languages=args.languages or DEFAULT_LANGUAGES.keys(),
             force_language=args.force_language,
-            ffmpeg_loglevel=args.ffmpeg_loglevel or DEFAULT_FFMPEG_LOGLEVEL
+            ffmpeg_loglevel=args.ffmpeg_loglevel or DEFAULT_FFMPEG_LOGLEVEL,
+            skip_metadata=args.skip_metadata
         )
         t.probe()
         t.transcode()
