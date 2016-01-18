@@ -24,7 +24,7 @@ FORMATS_STEREO = ['aac']
 FORMATS_LOSSLESS = ['flac']
 FORMATS_SURROUND = ['ac3', 'dts']
 FORMATS_CONVERT = ['vorbis']
-FORMATS_SUBTITLE = ['subrip', 'mov_text', 'hdmv_pgs_subtitle']
+FORMATS_SUBTITLE = ['subrip', 'mov_text']
 FORMATS = FORMATS_VIDEO + FORMATS_STEREO + FORMATS_CONVERT + FORMATS_SURROUND + FORMATS_LOSSLESS + FORMATS_SUBTITLE
 
 FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
