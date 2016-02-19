@@ -33,6 +33,7 @@ FFPROBE_REGEX = re.compile('Stream #(?P<file_id>\d+):(?P<track_id>\d+)'
 
 FFMPEG_PATH = 'ffmpeg'
 
+
 class Track(object):
     def __init__(self, file_id, track_id, language, format,
                  trackfile=None, temporary=False, codec='copy',
@@ -102,13 +103,12 @@ class Track(object):
 
 
 class Transcoder(object):
-    def __init__(self, source, languages, force_language, ffmpeg_loglevel, skip_metadata):
+    def __init__(self, source, languages, force_language, ffmpeg_loglevel):
         self.source = source
         self.basename = os.path.splitext(os.path.basename(self.source))[0]
         self.languages = languages
         self.force_language = force_language
         self.ffmpeg_loglevel = ffmpeg_loglevel
-        self.skip_metadata = skip_metadata
         self.video_tracks = []
         self.audio_tracks = []
         self.subs_tracks = []
@@ -237,39 +237,48 @@ class Transcoder(object):
             track = self.video_tracks[i]
             cmd += ['-c:v:%d' % i, track.codec]
             if track.options:
-              cmd += track.options
+                cmd += track.options
 
         for i in range(len(self.audio_tracks)):
             track = self.audio_tracks[i]
             cmd += ['-c:a:%d' % i, track.codec]
             if track.options:
-              cmd += track.options
+                cmd += track.options
 
         for i in range(len(self.subs_tracks)):
             cmd += ['-c:s:%d' % i, 'mov_text']
             if track.options:
-              cmd += track.options
+                cmd += track.options
 
         # Track metadata
+
+        video_languages = set([v.language for v in self.video_tracks])
+        audio_languages = set([a.language for a in self.audio_tracks])
+
+        show_video_language = len(video_languages) > 1
+        show_audio_language = len(audio_languages) > 1
 
         for i in range(len(self.video_tracks)):
             v = self.video_tracks[i]
             cmd += ['-metadata:s:v:%d' % i, 'language=%s' % v.language]
+            cmd += ['-metadata:s:v:%d' % i, 'title=%s' % v.name(show_video_language)]
 
         for i in range(len(self.audio_tracks)):
             a = self.audio_tracks[i]
             cmd += ['-metadata:s:a:%d' % i, 'language=%s' % a.language]
+            cmd += ['-metadata:s:a:%d' % i, 'title=%s' % a.name(show_audio_language)]
 
         for i in range(len(self.subs_tracks)):
             s = self.subs_tracks[i]
             cmd += ['-metadata:s:s:%d' % i, 'language=%s' % s.language]
+            cmd += ['-metadata:s:s:%d' % i, 'title=%s' % s.name(True)]
 
         # Output options
 
         for a in self.audio_tracks:
-          if a.codec == 'dca':
-            cmd += ['-strict', '-2']
-            break
+            if a.codec == 'dca':
+                cmd += ['-strict', '-2']
+                break
 
         filename = self.basename + '.transcoded.m4v'
 
@@ -295,49 +304,6 @@ class Transcoder(object):
         logging.info(logstring)
 
         logging.info('FFMPEG is running now...')
-        subprocess.check_call(cmd)
-
-        # Set MP4 metadata
-
-        video_languages = set([v.language for v in self.video_tracks])
-        audio_languages = set([a.language for a in self.audio_tracks])
-
-        show_video_language = len(video_languages) > 1
-        show_audio_language = len(audio_languages) > 1
-
-        mp4track_commands = []
-        counter = 1
-
-        for i in range(len(self.video_tracks)):
-            v = self.video_tracks[i]
-            if v.name(show_video_language):
-                mp4track_commands.append(['--track-id=%d' % counter, '--udtaname=%s' % v.name(show_video_language)])
-            counter += 1
-
-        for i in range(len(self.audio_tracks)):
-            a = self.audio_tracks[i]
-            if a.name(show_audio_language):
-                mp4track_commands.append(['--track-id=%d' % counter, '--udtaname=%s' % a.name(show_audio_language)])
-            counter += 1
-
-        for i in range(len(self.subs_tracks)):
-            s = self.subs_tracks[i]
-            if s.name(True):
-                mp4track_commands.append(['--track-id=%d' % counter, '--udtaname=%s' % s.name(True)])
-            counter += 1
-
-        for c in mp4track_commands:
-            cmd = ['mp4track'] + c + [filename]
-
-            logging.debug('mp4track command: %s', ' '.join(cmd))
-            logging.info('mp4track is running now...')
-            subprocess.check_call(cmd)
-
-        # FFMPEG always embeds itself as encoder
-
-        cmd = ['mp4tags', '-r', 'E', filename]
-        logging.debug('mp4tags command: %s', ' '.join(cmd))
-        logging.info('mp4tags is running now...')
         subprocess.check_call(cmd)
 
         logging.info('Done. Your new file is: %s' % filename)
@@ -379,7 +345,6 @@ if __name__ == '__main__':
                         metavar='FFMPEG_PATH', help='path to ffmpeg binary')
     parser.add_argument('-d', action='store', dest='ffmpeg_loglevel',
                         metavar='LEVEL', help='ffmpeg log level')
-    parser.add_argument('-s', action='store_const', dest='skip_metadata', const=True)
 
     args = parser.parse_args()
 
@@ -397,8 +362,7 @@ if __name__ == '__main__':
             source=source,
             languages=args.languages or DEFAULT_LANGUAGES.keys(),
             force_language=args.force_language,
-            ffmpeg_loglevel=args.ffmpeg_loglevel or DEFAULT_FFMPEG_LOGLEVEL,
-            skip_metadata=args.skip_metadata
+            ffmpeg_loglevel=args.ffmpeg_loglevel or DEFAULT_FFMPEG_LOGLEVEL
         )
         t.probe()
         t.transcode()
